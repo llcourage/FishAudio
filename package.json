@@ -1,0 +1,21 @@
+{
+  "name": "fish-audio-electron",
+  "version": "1.0.0",
+  "description": "Electron app for Fish Audio text-to-speech",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": [
+    "electron",
+    "fish-audio",
+    "tts"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0"
+  },
+  "dependencies": {}
+}
