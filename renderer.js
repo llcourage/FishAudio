@@ -1,5 +1,7 @@
 // DOM Elements
 const textInput = document.getElementById('textInput');
+const temperatureInput = document.getElementById('temperatureInput');
+const topPInput = document.getElementById('topPInput');
 const referenceIdInput = document.getElementById('referenceId');
 const referenceIdSelect = document.getElementById('referenceIdSelect');
 const saveRefIdBtn = document.getElementById('saveRefIdBtn');
@@ -13,6 +15,13 @@ const emotionBtn = document.getElementById('emotionBtn');
 const emotionModal = document.getElementById('emotionModal');
 const emotionModalBody = document.getElementById('emotionModalBody');
 const closeModal = document.querySelector('.close-modal');
+
+// Confirm split generate modal
+const confirmSplitModal = document.getElementById('confirmSplitModal');
+const confirmSplitMessage = document.getElementById('confirmSplitMessage');
+const confirmSplitBtn = document.getElementById('confirmSplitBtn');
+const cancelSplitBtn = document.getElementById('cancelSplitBtn');
+const closeConfirmSplitModal = document.getElementById('closeConfirmSplitModal');
 
 // Speed control
 const speedSlider = document.getElementById('speedSlider');
@@ -55,9 +64,15 @@ const downloadBtn3 = document.getElementById('downloadBtn3');
 
 // Audio files for each section
 let currentAudioFile1 = null; // Section 1: Generate
+let currentAudioFile1A = null; // Section 1A: Split Generate
 let currentAudioFile2 = null; // Section 2: Adjust
 let currentAudioFile3 = null; // Section 3: Merge
 let currentActiveSection = null; // Track which section's audio is currently playing
+
+// Sequential play state
+let sequentialPlayFiles = []; // Array of audio file paths
+let currentSequentialIndex = -1; // Current playing file index
+let isSequentialPlaying = false; // Is sequential play active
 
 // Reference ID storage
 const STORAGE_KEY = 'savedReferenceIds';
@@ -74,6 +89,11 @@ function loadAudioToPlayer(filePath, section) {
   // Set playback rate based on active section
   if (section === 1) {
     audioPlayer.playbackRate = parseFloat(speedSlider.value);
+  } else if (section === '1A') {
+    audioPlayer.playbackRate = parseFloat(splitSpeedSlider ? splitSpeedSlider.value : 1.0);
+  } else if (section === '1B') {
+    const sequentialPlaySpeedSlider = document.getElementById('sequentialPlaySpeedSlider');
+    audioPlayer.playbackRate = parseFloat(sequentialPlaySpeedSlider ? sequentialPlaySpeedSlider.value : 1.0);
   } else if (section === 2) {
     audioPlayer.playbackRate = parseFloat(speedSlider2.value);
   } else if (section === 3) {
@@ -87,6 +107,24 @@ function setSectionButtons(section, enabled) {
     playBtn1.disabled = !enabled;
     stopBtn1.disabled = !enabled;
     downloadBtn1.disabled = !enabled;
+  } else if (section === '1A') {
+    const playSplitBtn = document.getElementById('playSplitBtn');
+    const stopSplitBtn = document.getElementById('stopSplitBtn');
+    const downloadSplitBtn = document.getElementById('downloadSplitBtn');
+    if (playSplitBtn) playSplitBtn.disabled = !enabled;
+    if (stopSplitBtn) stopSplitBtn.disabled = !enabled;
+    if (downloadSplitBtn) downloadSplitBtn.disabled = !enabled;
+  } else if (section === '1B') {
+    const startSequentialPlayBtn = document.getElementById('startSequentialPlayBtn');
+    const pauseSequentialPlayBtn = document.getElementById('pauseSequentialPlayBtn');
+    const stopSequentialPlayBtn = document.getElementById('stopSequentialPlayBtn');
+    const prevFileBtn = document.getElementById('prevFileBtn');
+    const nextFileBtn = document.getElementById('nextFileBtn');
+    if (startSequentialPlayBtn) startSequentialPlayBtn.disabled = !enabled;
+    if (pauseSequentialPlayBtn) pauseSequentialPlayBtn.disabled = !enabled;
+    if (stopSequentialPlayBtn) stopSequentialPlayBtn.disabled = !enabled;
+    if (prevFileBtn) prevFileBtn.disabled = !enabled;
+    if (nextFileBtn) nextFileBtn.disabled = !enabled;
   } else if (section === 2) {
     playBtn2.disabled = !enabled;
     stopBtn2.disabled = !enabled;
@@ -102,7 +140,16 @@ function setSectionButtons(section, enabled) {
 function loadSavedReferenceIds() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    
+    const parsed = JSON.parse(saved);
+    
+    // Backward compatibility: if it's an array of strings, convert to objects
+    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
+      return parsed.map(id => ({ id, name: '' }));
+    }
+    
+    return parsed;
   } catch (error) {
     console.error('Error loading saved reference IDs:', error);
     return [];
@@ -126,12 +173,40 @@ function updateReferenceIdSelect() {
   referenceIdSelect.innerHTML = '<option value="">-- 使用默认语音 --</option>';
   
   // Add saved reference IDs
-  savedIds.forEach((id) => {
+  savedIds.forEach((item) => {
     const option = document.createElement('option');
+    const id = typeof item === 'string' ? item : item.id;
+    const name = typeof item === 'string' ? '' : (item.name || '');
     option.value = id;
-    option.textContent = `${id.substring(0, 8)}...${id.substring(id.length - 8)}`;
+    
+    // Display format: "备注名称 (ID前8位...后8位)" or just "ID前8位...后8位" if no name
+    if (name) {
+      option.textContent = `${name} (${id.substring(0, 8)}...${id.substring(id.length - 8)})`;
+    } else {
+      option.textContent = `${id.substring(0, 8)}...${id.substring(id.length - 8)}`;
+    }
     referenceIdSelect.appendChild(option);
   });
+  
+  // Also update split reference ID select
+  const splitReferenceIdSelect = document.getElementById('splitReferenceIdSelect');
+  if (splitReferenceIdSelect) {
+    splitReferenceIdSelect.innerHTML = '<option value="">-- 使用默认语音 --</option>';
+    savedIds.forEach((item) => {
+      const option = document.createElement('option');
+      const id = typeof item === 'string' ? item : item.id;
+      const name = typeof item === 'string' ? '' : (item.name || '');
+      option.value = id;
+      
+      // Display format: "备注名称 (ID前8位...后8位)" or just "ID前8位...后8位" if no name
+      if (name) {
+        option.textContent = `${name} (${id.substring(0, 8)}...${id.substring(id.length - 8)})`;
+      } else {
+        option.textContent = `${id.substring(0, 8)}...${id.substring(id.length - 8)}`;
+      }
+      splitReferenceIdSelect.appendChild(option);
+    });
+  }
 }
 
 // Initialize on page load
@@ -334,6 +409,46 @@ speedSlider2.addEventListener('input', (e) => {
 initializeSpeedSlider();
 initializeSpeedSlider2();
 
+// Initialize split speed slider
+const splitSpeedSlider = document.getElementById('splitSpeedSlider');
+const splitSpeedValue = document.getElementById('splitSpeedValue');
+
+if (splitSpeedSlider && splitSpeedValue) {
+  splitSpeedValue.textContent = `${parseFloat(splitSpeedSlider.value).toFixed(1)}x`;
+  splitSpeedSlider.addEventListener('input', (e) => {
+    const speed = parseFloat(e.target.value);
+    splitSpeedValue.textContent = `${speed.toFixed(1)}x`;
+    if (currentActiveSection === '1A') {
+      audioPlayer.playbackRate = speed;
+    }
+  });
+}
+
+// Split mode folder selection
+const splitFolderPath = document.getElementById('splitFolderPath');
+const selectSplitFolderBtn = document.getElementById('selectSplitFolderBtn');
+
+// Handle split folder selection
+if (selectSplitFolderBtn) {
+  selectSplitFolderBtn.addEventListener('click', async () => {
+    try {
+      const result = await window.electronAPI.selectFolder();
+      if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
+        splitFolderPath.value = result.filePaths[0];
+      }
+    } catch (error) {
+      showStatus(`选择文件夹失败: ${error.message}`, 'error');
+    }
+  });
+  
+  // Allow clicking on the input to select folder
+  if (splitFolderPath) {
+    splitFolderPath.addEventListener('click', () => {
+      selectSplitFolderBtn.click();
+    });
+  }
+}
+
 function showStatus(message, type = 'info') {
   statusMessage.textContent = message;
   statusMessage.className = `status-message ${type}`;
@@ -360,7 +475,7 @@ function setLoading(loading) {
   }
 }
 
-// ============ SECTION 1: Generate Speech ============
+// ============ SECTION 1: Generate Speech (Single) ============
 generateBtn.addEventListener('click', async () => {
   const text = textInput.value.trim();
   
@@ -371,12 +486,34 @@ generateBtn.addEventListener('click', async () => {
   
   let referenceId = referenceIdSelect.value.trim() || referenceIdInput.value.trim();
   referenceId = referenceId || undefined;
+
+  // Read sampling parameters
+  let temperature = null;
+  let topP = null;
+
+  if (temperatureInput && temperatureInput.value.trim() !== '') {
+    const t = parseFloat(temperatureInput.value.trim());
+    if (isNaN(t) || t < 0 || t > 1) {
+      showStatus('temperature 必须在 0 到 1 之间', 'error');
+      return;
+    }
+    temperature = t;
+  }
+
+  if (topPInput && topPInput.value.trim() !== '') {
+    const p = parseFloat(topPInput.value.trim());
+    if (isNaN(p) || p < 0 || p > 1) {
+      showStatus('top_p 必须在 0 到 1 之间', 'error');
+      return;
+    }
+    topP = p;
+  }
   
   setLoading(true);
   showStatus('正在生成语音...', 'info');
   
   try {
-    const result = await window.electronAPI.generateSpeech(text, referenceId);
+    const result = await window.electronAPI.generateSpeech(text, referenceId, false, null, temperature, topP);
     
     if (result.success) {
       currentAudioFile1 = result.filePath;
@@ -392,6 +529,217 @@ generateBtn.addEventListener('click', async () => {
     setLoading(false);
   }
 });
+
+// ============ SECTION 1A: Split Generate Speech ============
+const generateSplitBtn = document.getElementById('generateSplitBtn');
+const splitTextInput = document.getElementById('splitTextInput');
+const splitReferenceIdSelect = document.getElementById('splitReferenceIdSelect');
+const splitReferenceIdInput = document.getElementById('splitReferenceId');
+
+// Function to actually generate split audio
+async function executeSplitGenerate() {
+  const text = splitTextInput ? splitTextInput.value.trim() : '';
+  
+  if (!text) {
+    showStatus('请输入要转换的文本', 'error');
+    return;
+  }
+  
+  if (!text.includes('*****')) {
+    showStatus('分段模式需要文本中包含 ***** 分割符号', 'error');
+    return;
+  }
+  
+  // Check if folder is selected
+  const selectedFolder = splitFolderPath ? splitFolderPath.value.trim() : '';
+  if (!selectedFolder) {
+    showStatus('请先选择保存文件夹', 'error');
+    return;
+  }
+  
+  let referenceId = splitReferenceIdSelect ? (splitReferenceIdSelect.value.trim() || (splitReferenceIdInput ? splitReferenceIdInput.value.trim() : '')) : '';
+  referenceId = referenceId || undefined;
+
+  // Sampling parameters for split generate (use 1A section inputs)
+  const splitTemperatureInput = document.getElementById('splitTemperatureInput');
+  const splitTopPInput = document.getElementById('splitTopPInput');
+  let temperature = null;
+  let topP = null;
+
+  if (splitTemperatureInput && splitTemperatureInput.value.trim() !== '') {
+    const t = parseFloat(splitTemperatureInput.value.trim());
+    if (isNaN(t) || t < 0 || t > 1) {
+      showStatus('temperature 必须在 0 到 1 之间', 'error');
+      return;
+    }
+    temperature = t;
+  }
+
+  if (splitTopPInput && splitTopPInput.value.trim() !== '') {
+    const p = parseFloat(splitTopPInput.value.trim());
+    if (isNaN(p) || p < 0 || p > 1) {
+      showStatus('top_p 必须在 0 到 1 之间', 'error');
+      return;
+    }
+    topP = p;
+  }
+
+  const btnText = generateSplitBtn.querySelector('.btn-text');
+  const btnLoading = generateSplitBtn.querySelector('.btn-loading');
+  
+  if (btnText) btnText.style.display = 'none';
+  if (btnLoading) btnLoading.style.display = 'inline';
+  generateSplitBtn.disabled = true;
+  showStatus('正在生成分段语音...', 'info');
+  
+  try {
+    const result = await window.electronAPI.generateSpeech(text, referenceId, true, selectedFolder, temperature, topP);
+    
+    if (result.success && result.filePaths && result.filePaths.length > 0) {
+      // Load the first file for playback
+      currentAudioFile1A = result.filePaths[0];
+      loadAudioToPlayer(result.filePaths[0], '1A');
+      setSectionButtons('1A', true);
+      
+      let successMsg = `语音生成成功！共生成 ${result.fileCount} 个分段音频文件（1.mp3, 2.mp3, ...）。`;
+      if (result.warnings) {
+        successMsg += ` 警告：${result.warnings}`;
+        showStatus(successMsg + ` 所有文件保存在: ${result.outputDir}`, 'error');
+      } else {
+        showStatus(successMsg + ` 所有文件保存在: ${result.outputDir}`, 'success');
+      }
+      // Keep the message visible longer
+      setTimeout(() => {
+        if (statusMessage.textContent.includes('所有文件保存在:')) {
+          statusMessage.style.display = 'none';
+        }
+      }, 10000);
+    } else {
+      showStatus(`生成失败: ${result.error || '没有生成任何文件'}`, 'error');
+    }
+  } catch (error) {
+    showStatus(`发生错误: ${error.message}`, 'error');
+  } finally {
+    if (btnText) btnText.style.display = 'inline';
+    if (btnLoading) btnLoading.style.display = 'none';
+    generateSplitBtn.disabled = false;
+  }
+}
+
+if (generateSplitBtn) {
+  generateSplitBtn.addEventListener('click', () => {
+    const text = splitTextInput ? splitTextInput.value.trim() : '';
+    
+    if (!text) {
+      showStatus('请输入要转换的文本', 'error');
+      return;
+    }
+    
+    if (!text.includes('*****')) {
+      showStatus('分段模式需要文本中包含 ***** 分割符号', 'error');
+      return;
+    }
+    
+    // Check if folder is selected
+    const selectedFolder = splitFolderPath ? splitFolderPath.value.trim() : '';
+    if (!selectedFolder) {
+      showStatus('请先选择保存文件夹', 'error');
+      return;
+    }
+    
+    // Show confirmation modal
+    confirmSplitMessage.textContent = `即将生成语音存入 ${selectedFolder} 文件夹`;
+    confirmSplitModal.style.display = 'block';
+  });
+}
+
+// Handle confirm button click
+if (confirmSplitBtn) {
+  confirmSplitBtn.addEventListener('click', () => {
+    confirmSplitModal.style.display = 'none';
+    executeSplitGenerate();
+  });
+}
+
+// Handle cancel button click
+if (cancelSplitBtn) {
+  cancelSplitBtn.addEventListener('click', () => {
+    confirmSplitModal.style.display = 'none';
+  });
+}
+
+// Handle close button click
+if (closeConfirmSplitModal) {
+  closeConfirmSplitModal.addEventListener('click', () => {
+    confirmSplitModal.style.display = 'none';
+  });
+}
+
+// Close modal when clicking outside
+if (confirmSplitModal) {
+  window.addEventListener('click', (event) => {
+    if (event.target === confirmSplitModal) {
+      confirmSplitModal.style.display = 'none';
+    }
+  });
+}
+
+// Section 1A buttons (Split Generate)
+const playSplitBtn = document.getElementById('playSplitBtn');
+const stopSplitBtn = document.getElementById('stopSplitBtn');
+const downloadSplitBtn = document.getElementById('downloadSplitBtn');
+
+if (playSplitBtn) {
+  playSplitBtn.addEventListener('click', () => {
+    if (currentAudioFile1A) {
+      if (currentActiveSection !== '1A') {
+        loadAudioToPlayer(currentAudioFile1A, '1A');
+      }
+      audioPlayer.play();
+    }
+  });
+}
+
+if (stopSplitBtn) {
+  stopSplitBtn.addEventListener('click', () => {
+    if (currentActiveSection === '1A') {
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
+    }
+  });
+}
+
+if (downloadSplitBtn) {
+  downloadSplitBtn.addEventListener('click', async () => {
+    if (!currentAudioFile1A) {
+      showStatus('没有可下载的音频文件', 'error');
+      return;
+    }
+    
+    const speed = splitSpeedSlider ? parseFloat(splitSpeedSlider.value) : 1.0;
+    
+    try {
+      const result = await window.electronAPI.downloadAudio(currentAudioFile1A, speed);
+      
+      if (result.canceled) return;
+      
+      if (result.success) {
+        if (Math.abs(speed - 1.0) > 0.01) {
+          showStatus(`音频已保存（速度 ${speed.toFixed(1)}x）: ${result.filePath}`, 'success');
+        } else {
+          showStatus(`音频已保存到: ${result.filePath}`, 'success');
+        }
+      } else {
+        showStatus(`下载失败: ${result.error}`, 'error');
+        if (result.error.includes('ffmpeg')) {
+          setTimeout(() => { statusMessage.style.display = 'none'; }, 15000);
+        }
+      }
+    } catch (error) {
+      showStatus(`发生错误: ${error.message}`, 'error');
+    }
+  });
+}
 
 // Section 1 buttons
 playBtn1.addEventListener('click', () => {
@@ -707,6 +1055,14 @@ audioPlayer.addEventListener('play', () => {
   if (currentActiveSection === 1) {
     playBtn1.disabled = true;
     stopBtn1.disabled = false;
+  } else if (currentActiveSection === '1A') {
+    const playSplitBtn = document.getElementById('playSplitBtn');
+    const stopSplitBtn = document.getElementById('stopSplitBtn');
+    if (playSplitBtn) playSplitBtn.disabled = true;
+    if (stopSplitBtn) stopSplitBtn.disabled = false;
+  } else if (currentActiveSection === '1B') {
+    if (pauseSequentialPlayBtn) pauseSequentialPlayBtn.disabled = false;
+    if (startSequentialPlayBtn) startSequentialPlayBtn.disabled = true;
   } else if (currentActiveSection === 2) {
     playBtn2.disabled = true;
     stopBtn2.disabled = false;
@@ -719,6 +1075,12 @@ audioPlayer.addEventListener('play', () => {
 audioPlayer.addEventListener('pause', () => {
   if (currentActiveSection === 1) {
     playBtn1.disabled = false;
+  } else if (currentActiveSection === '1A') {
+    const playSplitBtn = document.getElementById('playSplitBtn');
+    if (playSplitBtn) playSplitBtn.disabled = false;
+  } else if (currentActiveSection === '1B') {
+    if (pauseSequentialPlayBtn) pauseSequentialPlayBtn.disabled = true;
+    if (startSequentialPlayBtn) startSequentialPlayBtn.disabled = false;
   } else if (currentActiveSection === 2) {
     playBtn2.disabled = false;
   } else if (currentActiveSection === 3) {
@@ -726,19 +1088,12 @@ audioPlayer.addEventListener('pause', () => {
   }
 });
 
-audioPlayer.addEventListener('ended', () => {
-  if (currentActiveSection === 1) {
-    playBtn1.disabled = false;
-  } else if (currentActiveSection === 2) {
-    playBtn2.disabled = false;
-  } else if (currentActiveSection === 3) {
-    playBtn3.disabled = false;
-  }
-});
 
 // Save reference ID button
 saveRefIdBtn.addEventListener('click', () => {
   const refId = referenceIdInput.value.trim();
+  const refIdNameInput = document.getElementById('referenceIdName');
+  const refIdName = refIdNameInput ? refIdNameInput.value.trim() : '';
   
   if (!refId) {
     showStatus('请输入 Reference ID', 'error');
@@ -752,27 +1107,82 @@ saveRefIdBtn.addEventListener('click', () => {
   
   const savedIds = loadSavedReferenceIds();
   
-  if (savedIds.includes(refId)) {
-    showStatus('该 Reference ID 已存在', 'info');
+  // Check if ID already exists
+  const existingIndex = savedIds.findIndex(item => {
+    const id = typeof item === 'string' ? item : item.id;
+    return id === refId;
+  });
+  
+  if (existingIndex >= 0) {
+    // Update existing entry with new name if provided
+    if (refIdName) {
+      savedIds[existingIndex] = { id: refId, name: refIdName };
+      saveReferenceIds(savedIds);
+      updateReferenceIdSelect();
+      showStatus('已更新该 Reference ID 的备注名称', 'success');
+    } else {
+      showStatus('该 Reference ID 已存在', 'info');
+    }
     referenceIdSelect.value = refId;
+    if (refIdNameInput) refIdNameInput.value = '';
     return;
   }
   
-  savedIds.push(refId);
+  // Add new entry
+  savedIds.push({ id: refId, name: refIdName });
   saveReferenceIds(savedIds);
   updateReferenceIdSelect();
   referenceIdSelect.value = refId;
   referenceIdInput.value = '';
-  showStatus('Reference ID 已保存', 'success');
+  if (refIdNameInput) refIdNameInput.value = '';
+  showStatus(refIdName ? `Reference ID 已保存（备注: ${refIdName}）` : 'Reference ID 已保存', 'success');
 });
 
 referenceIdSelect.addEventListener('change', (e) => {
   if (e.target.value) {
     referenceIdInput.value = e.target.value;
+    
+    // Also update the name input if available
+    const savedIds = loadSavedReferenceIds();
+    const selectedItem = savedIds.find(item => {
+      const id = typeof item === 'string' ? item : item.id;
+      return id === e.target.value;
+    });
+    
+    const refIdNameInput = document.getElementById('referenceIdName');
+    if (refIdNameInput) {
+      if (selectedItem && typeof selectedItem === 'object' && selectedItem.name) {
+        refIdNameInput.value = selectedItem.name;
+      } else {
+        refIdNameInput.value = '';
+      }
+    }
   } else {
     referenceIdInput.value = '';
+    const refIdNameInput = document.getElementById('referenceIdName');
+    if (refIdNameInput) refIdNameInput.value = '';
   }
 });
+
+// Sync split reference ID select with input
+if (splitReferenceIdSelect) {
+  splitReferenceIdSelect.addEventListener('change', (e) => {
+    if (e.target.value && splitReferenceIdInput) {
+      splitReferenceIdInput.value = e.target.value;
+    } else if (splitReferenceIdInput) {
+      splitReferenceIdInput.value = '';
+    }
+  });
+}
+
+if (splitReferenceIdInput) {
+  splitReferenceIdInput.addEventListener('input', () => {
+    if (splitReferenceIdSelect && splitReferenceIdSelect.value && 
+        splitReferenceIdInput.value !== splitReferenceIdSelect.value) {
+      splitReferenceIdSelect.value = '';
+    }
+  });
+}
 
 referenceIdInput.addEventListener('input', () => {
   if (referenceIdSelect.value && referenceIdInput.value !== referenceIdSelect.value) {
@@ -791,5 +1201,241 @@ referenceIdInput.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === 'Enter') {
     e.preventDefault();
     saveRefIdBtn.click();
+  }
+});
+
+// ============ SECTION 1B: Sequential Play Folder Audio ============
+const sequentialPlayFolderPath = document.getElementById('sequentialPlayFolderPath');
+const selectSequentialPlayFolderBtn = document.getElementById('selectSequentialPlayFolderBtn');
+const startSequentialPlayBtn = document.getElementById('startSequentialPlayBtn');
+const pauseSequentialPlayBtn = document.getElementById('pauseSequentialPlayBtn');
+const stopSequentialPlayBtn = document.getElementById('stopSequentialPlayBtn');
+const prevFileBtn = document.getElementById('prevFileBtn');
+const nextFileBtn = document.getElementById('nextFileBtn');
+const currentPlayingFile = document.getElementById('currentPlayingFile');
+const sequentialPlayProgress = document.getElementById('sequentialPlayProgress');
+const sequentialPlaySpeedSlider = document.getElementById('sequentialPlaySpeedSlider');
+const sequentialPlaySpeedValue = document.getElementById('sequentialPlaySpeedValue');
+const startFromFileSelect = document.getElementById('startFromFileSelect');
+
+// Initialize sequential play speed slider
+if (sequentialPlaySpeedSlider && sequentialPlaySpeedValue) {
+  sequentialPlaySpeedValue.textContent = `${parseFloat(sequentialPlaySpeedSlider.value).toFixed(1)}x`;
+  sequentialPlaySpeedSlider.addEventListener('input', (e) => {
+    const speed = parseFloat(e.target.value);
+    sequentialPlaySpeedValue.textContent = `${speed.toFixed(1)}x`;
+    if (currentActiveSection === '1B') {
+      audioPlayer.playbackRate = speed;
+    }
+  });
+}
+
+// Handle sequential play folder selection
+if (selectSequentialPlayFolderBtn) {
+  selectSequentialPlayFolderBtn.addEventListener('click', async () => {
+    try {
+      const result = await window.electronAPI.selectFolder();
+      if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
+        sequentialPlayFolderPath.value = result.filePaths[0];
+        
+        // Get audio files list
+        showStatus('正在获取音频文件列表...', 'info');
+        const listResult = await window.electronAPI.getAudioFilesList(result.filePaths[0]);
+        
+        if (listResult.success && listResult.filePaths.length > 0) {
+          sequentialPlayFiles = listResult.filePaths;
+          currentSequentialIndex = -1;
+          startSequentialPlayBtn.disabled = false;
+          currentPlayingFile.textContent = `已找到 ${sequentialPlayFiles.length} 个音频文件`;
+          sequentialPlayProgress.textContent = `0 / ${sequentialPlayFiles.length}`;
+          
+          // Populate start from file select dropdown
+          if (startFromFileSelect) {
+            startFromFileSelect.innerHTML = '<option value="">-- 从第一个文件开始 --</option>';
+            sequentialPlayFiles.forEach((filePath, index) => {
+              const fileName = filePath.split(/[\\/]/).pop();
+              const option = document.createElement('option');
+              option.value = index.toString();
+              option.textContent = `${index + 1}. ${fileName}`;
+              startFromFileSelect.appendChild(option);
+            });
+            startFromFileSelect.disabled = false;
+          }
+          
+          showStatus(`找到 ${sequentialPlayFiles.length} 个音频文件，可以开始播放`, 'success');
+        } else {
+          showStatus(listResult.error || '文件夹中没有找到音频文件', 'error');
+          currentPlayingFile.textContent = '未找到音频文件';
+          sequentialPlayFiles = [];
+          startSequentialPlayBtn.disabled = true;
+          if (startFromFileSelect) {
+            startFromFileSelect.innerHTML = '<option value="">-- 请先选择文件夹 --</option>';
+            startFromFileSelect.disabled = true;
+          }
+        }
+      }
+    } catch (error) {
+      showStatus(`选择文件夹失败: ${error.message}`, 'error');
+    }
+  });
+  
+  if (sequentialPlayFolderPath) {
+    sequentialPlayFolderPath.addEventListener('click', () => {
+      selectSequentialPlayFolderBtn.click();
+    });
+  }
+}
+
+// Handle start from file selection change
+if (startFromFileSelect) {
+  startFromFileSelect.addEventListener('change', (e) => {
+    if (e.target.value && sequentialPlayFiles.length > 0) {
+      const selectedIndex = parseInt(e.target.value);
+      if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < sequentialPlayFiles.length) {
+        // If currently playing, immediately switch to selected file
+        if (isSequentialPlaying && currentActiveSection === '1B') {
+          playSequentialFile(selectedIndex);
+        }
+      }
+    }
+  });
+}
+
+// Function to play file at index
+function playSequentialFile(index) {
+  if (index < 0 || index >= sequentialPlayFiles.length) {
+    return false;
+  }
+  
+  currentSequentialIndex = index;
+  const filePath = sequentialPlayFiles[index];
+  const fileName = filePath.split(/[\\/]/).pop();
+  
+  currentPlayingFile.textContent = `正在播放: ${fileName} (${index + 1}/${sequentialPlayFiles.length})`;
+  sequentialPlayProgress.textContent = `${index + 1} / ${sequentialPlayFiles.length}`;
+  
+  // Update start from file select to reflect current playing file
+  if (startFromFileSelect) {
+    startFromFileSelect.value = index.toString();
+  }
+  
+  loadAudioToPlayer(filePath, '1B');
+  audioPlayer.play();
+  
+  return true;
+}
+
+// Start sequential play
+if (startSequentialPlayBtn) {
+  startSequentialPlayBtn.addEventListener('click', () => {
+    if (sequentialPlayFiles.length === 0) {
+      showStatus('请先选择包含音频文件的文件夹', 'error');
+      return;
+    }
+    
+    isSequentialPlaying = true;
+    startSequentialPlayBtn.disabled = true;
+    pauseSequentialPlayBtn.disabled = false;
+    stopSequentialPlayBtn.disabled = false;
+    prevFileBtn.disabled = false;
+    nextFileBtn.disabled = false;
+    
+    // Get start index from user selection or use current index
+    let startIndex = 0;
+    if (currentSequentialIndex < 0) {
+      // If not currently playing, check if user selected a start file
+      if (startFromFileSelect && startFromFileSelect.value) {
+        startIndex = parseInt(startFromFileSelect.value);
+        if (isNaN(startIndex) || startIndex < 0 || startIndex >= sequentialPlayFiles.length) {
+          startIndex = 0;
+        }
+      }
+      playSequentialFile(startIndex);
+    } else {
+      // Resume from current position
+      audioPlayer.play();
+    }
+  });
+}
+
+// Pause sequential play
+if (pauseSequentialPlayBtn) {
+  pauseSequentialPlayBtn.addEventListener('click', () => {
+    audioPlayer.pause();
+    startSequentialPlayBtn.disabled = false;
+    pauseSequentialPlayBtn.disabled = true;
+  });
+}
+
+// Stop sequential play
+if (stopSequentialPlayBtn) {
+  stopSequentialPlayBtn.addEventListener('click', () => {
+    isSequentialPlaying = false;
+    audioPlayer.pause();
+    audioPlayer.currentTime = 0;
+    currentSequentialIndex = -1;
+    startSequentialPlayBtn.disabled = false;
+    pauseSequentialPlayBtn.disabled = true;
+    stopSequentialPlayBtn.disabled = true;
+    prevFileBtn.disabled = true;
+    nextFileBtn.disabled = true;
+    currentPlayingFile.textContent = '已停止';
+    sequentialPlayProgress.textContent = `0 / ${sequentialPlayFiles.length}`;
+    // Reset start file selection to default when stopped
+    if (startFromFileSelect) {
+      startFromFileSelect.value = '';
+    }
+  });
+}
+
+// Previous file
+if (prevFileBtn) {
+  prevFileBtn.addEventListener('click', () => {
+    if (currentSequentialIndex > 0) {
+      playSequentialFile(currentSequentialIndex - 1);
+    } else {
+      // Go to last file
+      playSequentialFile(sequentialPlayFiles.length - 1);
+    }
+  });
+}
+
+// Next file
+if (nextFileBtn) {
+  nextFileBtn.addEventListener('click', () => {
+    if (currentSequentialIndex < sequentialPlayFiles.length - 1) {
+      playSequentialFile(currentSequentialIndex + 1);
+    } else {
+      // Go to first file (loop)
+      playSequentialFile(0);
+    }
+  });
+}
+
+// Auto play next file when current file ends
+audioPlayer.addEventListener('ended', () => {
+  if (currentActiveSection === '1B' && isSequentialPlaying) {
+    const nextIndex = currentSequentialIndex + 1;
+    if (nextIndex < sequentialPlayFiles.length) {
+      // Play next file
+      playSequentialFile(nextIndex);
+    } else {
+      // All files played, stop
+      isSequentialPlaying = false;
+      startSequentialPlayBtn.disabled = false;
+      pauseSequentialPlayBtn.disabled = true;
+      stopSequentialPlayBtn.disabled = true;
+      currentPlayingFile.textContent = '播放完成';
+      showStatus('所有文件播放完成', 'success');
+    }
+  } else if (currentActiveSection === 1) {
+    playBtn1.disabled = false;
+  } else if (currentActiveSection === '1A') {
+    const playSplitBtn = document.getElementById('playSplitBtn');
+    if (playSplitBtn) playSplitBtn.disabled = false;
+  } else if (currentActiveSection === 2) {
+    playBtn2.disabled = false;
+  } else if (currentActiveSection === 3) {
+    playBtn3.disabled = false;
   }
 });

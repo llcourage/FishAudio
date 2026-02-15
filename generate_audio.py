@@ -15,13 +15,27 @@ if sys.platform == 'win32':
 
 def main():
     if len(sys.argv) < 4:
-        print("Error: Missing arguments. Usage: generate_audio.py <text> <api_key> <output_file> [reference_id]")
+        print("Error: Missing arguments. Usage: generate_audio.py <text> <api_key> <output_file> [reference_id] [temperature] [top_p]")
         sys.exit(1)
 
     text = sys.argv[1]
     api_key = sys.argv[2]
     output_file = sys.argv[3]
     reference_id = sys.argv[4].strip() if len(sys.argv) > 4 and sys.argv[4].strip() else None
+
+    # Optional sampling parameters
+    temperature = None
+    top_p = None
+    if len(sys.argv) > 5 and sys.argv[5].strip():
+        try:
+            temperature = float(sys.argv[5].strip())
+        except ValueError:
+            temperature = None
+    if len(sys.argv) > 6 and sys.argv[6].strip():
+        try:
+            top_p = float(sys.argv[6].strip())
+        except ValueError:
+            top_p = None
 
     try:
         # API endpoint
@@ -42,6 +56,10 @@ def main():
         
         if reference_id:
             payload["reference_id"] = reference_id
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if top_p is not None:
+            payload["top_p"] = top_p
         
         # Make API request
         response = requests.post(url, headers=headers, json=payload)
