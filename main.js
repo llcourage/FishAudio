@@ -218,6 +218,86 @@ ipcMain.handle('generate-speech', async (event, { text, referenceId, splitMode =
   });
 });
 
+// Handle auto section-based speech generation
+// This generates audio for a single section (text with ***** separators) into a specific output directory
+ipcMain.handle('generate-speech-auto-section', async (event, { text, referenceId, outputDir, temperature = null, topP = null }) => {
+  return new Promise(async (resolve) => {
+    try {
+      // Create the output directory (section_N/raw/) recursively
+      await fs.mkdir(outputDir, { recursive: true });
+
+      // Write script.txt in the section folder (parent of raw/)
+      const sectionDir = path.dirname(outputDir);
+      const scriptTxtPath = path.join(sectionDir, 'script.txt');
+      await fs.writeFile(scriptTxtPath, text, 'utf-8');
+
+      // Use the same split generation script - it handles ***** splitting internally
+      const scriptPath = path.join(__dirname, 'generate_audio_split.py');
+      const args = [
+        scriptPath, text, API_KEY, outputDir,
+        referenceId || '',
+        typeof temperature === 'number' ? temperature.toString() : '',
+        typeof topP === 'number' ? topP.toString() : ''
+      ];
+
+      const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+      const pythonEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
+      const pythonProcess = spawn(pythonCommand, args, { env: pythonEnv });
+
+      let stdout = '';
+      let stderr = '';
+
+      pythonProcess.stdout.on('data', (data) => {
+        stdout += data.toString('utf8');
+      });
+
+      pythonProcess.stderr.on('data', (data) => {
+        const errorText = data.toString('utf8');
+        stderr += errorText;
+        console.error('Python stderr (auto section):', errorText);
+      });
+
+      pythonProcess.on('close', async (code) => {
+        const fileLines = stdout.split('\n').filter(line => line.startsWith('FILE: '));
+        const generatedFiles = fileLines.map(line => line.replace('FILE: ', '').trim()).filter(f => f);
+
+        const warningLines = stderr.split('\n').filter(line =>
+          line.includes('WARNING:') || line.includes('Warning:') || line.includes('Failed')
+        );
+
+        if (generatedFiles.length > 0) {
+          const warnings = warningLines.length > 0 ? warningLines.join('; ') : null;
+          resolve({
+            success: true,
+            outputDir: outputDir,
+            filePaths: generatedFiles,
+            fileCount: generatedFiles.length,
+            warnings: warnings
+          });
+        } else if (code === 0) {
+          resolve({ success: false, error: 'No audio files were generated' });
+        } else {
+          const errorMsg = stderr || stdout || 'Unknown error occurred';
+          resolve({ success: false, error: errorMsg.trim() });
+        }
+      });
+
+      pythonProcess.on('error', (error) => {
+        if (error.code === 'ENOENT') {
+          resolve({
+            success: false,
+            error: 'Python not found. Please make sure Python is installed and in your PATH.'
+          });
+        } else {
+          resolve({ success: false, error: error.message });
+        }
+      });
+    } catch (error) {
+      resolve({ success: false, error: error.message });
+    }
+  });
+});
+
 // Handle download request (processes audio with speed if not 1.0)
 ipcMain.handle('download-audio', async (event, filePath, speed = 1.0) => {
   return new Promise(async (resolve) => {

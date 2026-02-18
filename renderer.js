@@ -1,3 +1,22 @@
+// Tab switching
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
+let currentTab = 'manual';
+
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    // Update active tab button
+    tabBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTab = btn.dataset.tab;
+
+    // Show/hide tab content panels
+    tabContents.forEach(panel => panel.classList.remove('active'));
+    const targetPanel = document.getElementById(`${currentTab}-content`);
+    if (targetPanel) targetPanel.classList.add('active');
+  });
+});
+
 // DOM Elements
 const textInput = document.getElementById('textInput');
 const temperatureInput = document.getElementById('temperatureInput');
@@ -205,6 +224,25 @@ function updateReferenceIdSelect() {
         option.textContent = `${id.substring(0, 8)}...${id.substring(id.length - 8)}`;
       }
       splitReferenceIdSelect.appendChild(option);
+    });
+  }
+
+  // Also update auto reference ID select
+  const autoReferenceIdSelect = document.getElementById('autoReferenceIdSelect');
+  if (autoReferenceIdSelect) {
+    autoReferenceIdSelect.innerHTML = '<option value="">-- 使用默认语音 --</option>';
+    savedIds.forEach((item) => {
+      const option = document.createElement('option');
+      const id = typeof item === 'string' ? item : item.id;
+      const name = typeof item === 'string' ? '' : (item.name || '');
+      option.value = id;
+      
+      if (name) {
+        option.textContent = `${name} (${id.substring(0, 8)}...${id.substring(id.length - 8)})`;
+      } else {
+        option.textContent = `${id.substring(0, 8)}...${id.substring(id.length - 8)}`;
+      }
+      autoReferenceIdSelect.appendChild(option);
     });
   }
 }
@@ -1439,3 +1477,272 @@ audioPlayer.addEventListener('ended', () => {
     playBtn3.disabled = false;
   }
 });
+
+// ============ AUTO TAB: Section-based Split Generation ============
+const autoGenerateBtn = document.getElementById('autoGenerateBtn');
+const autoTextInput = document.getElementById('autoTextInput');
+const autoReferenceIdSelect = document.getElementById('autoReferenceIdSelect');
+const autoReferenceIdInput = document.getElementById('autoReferenceId');
+const autoFolderPath = document.getElementById('autoFolderPath');
+const selectAutoFolderBtn = document.getElementById('selectAutoFolderBtn');
+const autoSpeedSlider = document.getElementById('autoSpeedSlider');
+const autoSpeedValue = document.getElementById('autoSpeedValue');
+const autoStatusMessage = document.getElementById('autoStatusMessage');
+const autoProgressArea = document.getElementById('autoProgressArea');
+const autoProgressText = document.getElementById('autoProgressText');
+
+// Confirm auto generate modal
+const confirmAutoModal = document.getElementById('confirmAutoModal');
+const confirmAutoMessage = document.getElementById('confirmAutoMessage');
+const confirmAutoBtn = document.getElementById('confirmAutoBtn');
+const cancelAutoBtn = document.getElementById('cancelAutoBtn');
+const closeConfirmAutoModal = document.getElementById('closeConfirmAutoModal');
+
+// Auto speed slider
+if (autoSpeedSlider && autoSpeedValue) {
+  autoSpeedValue.textContent = `${parseFloat(autoSpeedSlider.value).toFixed(1)}x`;
+  autoSpeedSlider.addEventListener('input', (e) => {
+    const speed = parseFloat(e.target.value);
+    autoSpeedValue.textContent = `${speed.toFixed(1)}x`;
+  });
+}
+
+// Auto folder selection
+if (selectAutoFolderBtn) {
+  selectAutoFolderBtn.addEventListener('click', async () => {
+    try {
+      const result = await window.electronAPI.selectFolder();
+      if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
+        autoFolderPath.value = result.filePaths[0];
+      }
+    } catch (error) {
+      showAutoStatus(`选择文件夹失败: ${error.message}`, 'error');
+    }
+  });
+
+  if (autoFolderPath) {
+    autoFolderPath.addEventListener('click', () => {
+      selectAutoFolderBtn.click();
+    });
+  }
+}
+
+// Sync auto reference ID select with input
+if (autoReferenceIdSelect) {
+  autoReferenceIdSelect.addEventListener('change', (e) => {
+    if (e.target.value && autoReferenceIdInput) {
+      autoReferenceIdInput.value = e.target.value;
+    } else if (autoReferenceIdInput) {
+      autoReferenceIdInput.value = '';
+    }
+  });
+}
+
+if (autoReferenceIdInput) {
+  autoReferenceIdInput.addEventListener('input', () => {
+    if (autoReferenceIdSelect && autoReferenceIdSelect.value &&
+        autoReferenceIdInput.value !== autoReferenceIdSelect.value) {
+      autoReferenceIdSelect.value = '';
+    }
+  });
+}
+
+function showAutoStatus(message, type = 'info') {
+  if (!autoStatusMessage) return;
+  autoStatusMessage.textContent = message;
+  autoStatusMessage.className = `status-message ${type}`;
+  autoStatusMessage.style.display = 'block';
+
+  if (type === 'success' || type === 'error') {
+    setTimeout(() => {
+      autoStatusMessage.style.display = 'none';
+    }, 10000);
+  }
+}
+
+// Function to execute auto section-based generation
+async function executeAutoGenerate() {
+  const text = autoTextInput ? autoTextInput.value.trim() : '';
+
+  if (!text) {
+    showAutoStatus('请输入要转换的文本', 'error');
+    return;
+  }
+
+  // Check if folder is selected
+  const selectedFolder = autoFolderPath ? autoFolderPath.value.trim() : '';
+  if (!selectedFolder) {
+    showAutoStatus('请先选择保存文件夹', 'error');
+    return;
+  }
+
+  let referenceId = autoReferenceIdSelect ? (autoReferenceIdSelect.value.trim() || (autoReferenceIdInput ? autoReferenceIdInput.value.trim() : '')) : '';
+  referenceId = referenceId || undefined;
+
+  // Sampling parameters
+  const autoTemperatureInput = document.getElementById('autoTemperatureInput');
+  const autoTopPInput = document.getElementById('autoTopPInput');
+  let temperature = null;
+  let topP = null;
+
+  if (autoTemperatureInput && autoTemperatureInput.value.trim() !== '') {
+    const t = parseFloat(autoTemperatureInput.value.trim());
+    if (isNaN(t) || t < 0 || t > 1) {
+      showAutoStatus('temperature 必须在 0 到 1 之间', 'error');
+      return;
+    }
+    temperature = t;
+  }
+
+  if (autoTopPInput && autoTopPInput.value.trim() !== '') {
+    const p = parseFloat(autoTopPInput.value.trim());
+    if (isNaN(p) || p < 0 || p > 1) {
+      showAutoStatus('top_p 必须在 0 到 1 之间', 'error');
+      return;
+    }
+    topP = p;
+  }
+
+  // Set loading state
+  const btnText = autoGenerateBtn.querySelector('.btn-text');
+  const btnLoading = autoGenerateBtn.querySelector('.btn-loading');
+  if (btnText) btnText.style.display = 'none';
+  if (btnLoading) btnLoading.style.display = 'inline';
+  autoGenerateBtn.disabled = true;
+
+  // Show progress area
+  if (autoProgressArea) autoProgressArea.style.display = 'block';
+
+  // Split by ||||| into sections
+  const sectionSeparator = '|||||';
+  const sections = text.split(sectionSeparator).map(s => s.trim()).filter(s => s);
+
+  if (sections.length === 0) {
+    showAutoStatus('没有检测到有效的 Section 内容', 'error');
+    if (btnText) btnText.style.display = 'inline';
+    if (btnLoading) btnLoading.style.display = 'none';
+    autoGenerateBtn.disabled = false;
+    if (autoProgressArea) autoProgressArea.style.display = 'none';
+    return;
+  }
+
+  showAutoStatus(`检测到 ${sections.length} 个 Section，开始生成...`, 'info');
+
+  let totalGenerated = 0;
+  let totalFailed = 0;
+  const sectionResults = [];
+
+  for (let i = 0; i < sections.length; i++) {
+    const sectionText = sections[i];
+    const sectionNum = i + 1;
+    const sectionRawDir = `${selectedFolder}/section_${sectionNum}/raw`;
+
+    if (autoProgressText) {
+      autoProgressText.textContent = `正在生成 Section ${sectionNum} / ${sections.length}...`;
+    }
+
+    try {
+      // Use existing split generation - the section text contains ***** separators
+      const result = await window.electronAPI.generateSpeechAutoSection(
+        sectionText, referenceId, sectionRawDir, temperature, topP
+      );
+
+      if (result.success) {
+        totalGenerated += result.fileCount || 0;
+        sectionResults.push({ section: sectionNum, success: true, fileCount: result.fileCount, warnings: result.warnings });
+      } else {
+        totalFailed++;
+        sectionResults.push({ section: sectionNum, success: false, error: result.error });
+      }
+    } catch (error) {
+      totalFailed++;
+      sectionResults.push({ section: sectionNum, success: false, error: error.message });
+    }
+  }
+
+  // Show final result
+  if (autoProgressText) {
+    autoProgressText.textContent = `完成！共 ${sections.length} 个 Section，生成 ${totalGenerated} 个音频文件`;
+  }
+
+  if (totalFailed === 0) {
+    showAutoStatus(
+      `全部生成成功！${sections.length} 个 Section，共 ${totalGenerated} 个音频文件。保存在: ${selectedFolder}`,
+      'success'
+    );
+  } else if (totalGenerated > 0) {
+    const failedSections = sectionResults.filter(r => !r.success).map(r => r.section).join(', ');
+    showAutoStatus(
+      `部分成功：${totalGenerated} 个音频文件已生成，${totalFailed} 个 Section 失败（Section ${failedSections}）。保存在: ${selectedFolder}`,
+      'error'
+    );
+  } else {
+    showAutoStatus('所有 Section 生成失败', 'error');
+  }
+
+  // Reset loading state
+  if (btnText) btnText.style.display = 'inline';
+  if (btnLoading) btnLoading.style.display = 'none';
+  autoGenerateBtn.disabled = false;
+}
+
+// Auto generate button click - show confirmation modal
+if (autoGenerateBtn) {
+  autoGenerateBtn.addEventListener('click', () => {
+    const text = autoTextInput ? autoTextInput.value.trim() : '';
+
+    if (!text) {
+      showAutoStatus('请输入要转换的文本', 'error');
+      return;
+    }
+
+    const selectedFolder = autoFolderPath ? autoFolderPath.value.trim() : '';
+    if (!selectedFolder) {
+      showAutoStatus('请先选择保存文件夹', 'error');
+      return;
+    }
+
+    // Count sections and segments
+    const sectionSeparator = '|||||';
+    const sections = text.split(sectionSeparator).map(s => s.trim()).filter(s => s);
+    let totalSegments = 0;
+    sections.forEach(section => {
+      const segments = section.split('*****').map(s => s.trim()).filter(s => s);
+      totalSegments += segments.length;
+    });
+
+    confirmAutoMessage.textContent = `即将生成 ${sections.length} 个 Section，共 ${totalSegments} 个音频片段，存入 ${selectedFolder}`;
+    confirmAutoModal.style.display = 'block';
+  });
+}
+
+// Confirm auto generate
+if (confirmAutoBtn) {
+  confirmAutoBtn.addEventListener('click', () => {
+    confirmAutoModal.style.display = 'none';
+    executeAutoGenerate();
+  });
+}
+
+// Cancel auto generate
+if (cancelAutoBtn) {
+  cancelAutoBtn.addEventListener('click', () => {
+    confirmAutoModal.style.display = 'none';
+  });
+}
+
+// Close auto confirm modal
+if (closeConfirmAutoModal) {
+  closeConfirmAutoModal.addEventListener('click', () => {
+    confirmAutoModal.style.display = 'none';
+  });
+}
+
+// Close auto confirm modal on outside click
+if (confirmAutoModal) {
+  window.addEventListener('click', (event) => {
+    if (event.target === confirmAutoModal) {
+      confirmAutoModal.style.display = 'none';
+    }
+  });
+}

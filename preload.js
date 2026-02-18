@@ -14,5 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   processAudioFilter: (filePath, highPass, lowPass, bass, treble, semitones, cents) => 
     ipcRenderer.invoke('process-audio-filter', filePath, highPass, lowPass, bass, treble, semitones, cents),
   getAudioFilesList: (folderPath) => 
-    ipcRenderer.invoke('get-audio-files-list', folderPath)
+    ipcRenderer.invoke('get-audio-files-list', folderPath),
+  generateSpeechAutoSection: (text, referenceId, outputDir, temperature = null, topP = null) =>
+    ipcRenderer.invoke('generate-speech-auto-section', { text, referenceId, outputDir, temperature, topP })
 });
